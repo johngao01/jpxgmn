@@ -2,8 +2,8 @@
 import logging
 import re
 import time
-
-import pymysql
+from typing import Optional
+import cx_Oracle
 import requests
 import urllib3
 from lxml import etree
@@ -13,15 +13,15 @@ urllib3.disable_warnings()
 header = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                         '(KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36'}
 
-domain = "https://www.xgmn01.com"
+domain = "https://www.xgmn02.com"
 
 
-def get_organization_had_info(organization):
+def get_organization_had_info(organization: Optional[str, None]):
     database_had_info = []
-    mysql = get_db()
-    cursor = mysql.cursor()
+    oracle_db = get_db()
+    cursor = oracle_db.cursor()
     if organization:
-        sql = f'select url from photos_data where organization="{organization}"'
+        sql = f"select url from photos_data where organ='{organization.lower()}'"
     else:
         sql = 'select url from photos_data'
     try:
@@ -29,37 +29,18 @@ def get_organization_had_info(organization):
         result = cursor.fetchall()
         # 已经获取过写真数据的写真地址
         database_had_info = [photos[0] for photos in result]
-    except pymysql.Error:
+    except cx_Oracle.Error:
         pass
     finally:
-        mysql.close()
+        oracle_db.close()
         return database_had_info
 
 
 # 创建各个写真机构的数据表
 def get_db():
-    host = 'localhost'
-    port = 3306
-    db = 'jpxgmn'
-    user = 'root'
-    password = '123456'
-    db = pymysql.connect(
-        host=host,
-        port=port,
-        db=db,
-        user=user,
-        password=password)
-    return db
-
-
-def get_organizations_map():
-    organizations = {}
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("select ename, cname, baseurl from organizitions")
-    for organization in cursor.fetchall():
-        organizations[organization[0]] = organization[1]
-    return organizations
+    dsn_tns = cx_Oracle.makedsn('localhost', '1522', service_name='orcl')
+    conn = cx_Oracle.connect(user='jpxgmn', password='123456', dsn=dsn_tns)
+    return conn
 
 
 @retry(stop_max_attempt_number=10)
@@ -150,11 +131,11 @@ def get_photos_info(photos_url, organization):
 
 
 def write_org_photos(db, org, p_url, title, p_date):
-    sql = "insert into organ_data (org, photos_url, title, date) values (%s,%s,%s,%s)"
+    sql = "insert into organ_data (organ, photos_url, title, up_date) values (:1,:2,:3,:4)"
     try:
         db.cursor().execute(sql, (org, p_url, title, p_date))
         db.commit()
-    except pymysql.Error:
+    except cx_Oracle.Error:
         db.rollback()
 
 
@@ -162,25 +143,25 @@ def write_photo_info_to_mysql(database, src, page, page_url, photos_info, organi
     cursor = database.cursor()
     star_path = r"/{}/{}".format(photos_info['star'], photos_info['title'])
     org_path = r"/{}/{}".format(organization, photos_info['title'])
-    sql = "insert into photo (src, page, page_url, photos_url, star, org, photos_title, star_path, org_path, local) " \
-          "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+    sql = "insert into photo (src, html_page, page_url, photos_url, star, organ, photos_title, " \
+          "star_path, org_path, file_status) values (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)"
     try:
         cursor.execute(sql, (
             src, page, page_url, photos_info["url"],
             photos_info["star"], organization, photos_info["title"], star_path, org_path, 0
         ))
         database.commit()
-    except pymysql.Error:
+    except cx_Oracle.Error:
         database.rollback()
     finally:
         cursor.close()
 
 
 def write_photos_info_to_mysql(photos_info):
-    mysql = get_db()
-    cursor = mysql.cursor()
-    sql = "replace into photos_data (url, star, title, organization, photos_nums, url_pages_nums, photos_src) " \
-          "values (%s,%s,%s,%s,%s,%s,%s)"
+    oracledb = get_db()
+    cursor = oracledb.cursor()
+    sql = "insert into photos_data (url, star, title, organ, photos_nums, url_pages_nums, photos_src) " \
+          "values (:1,:2,:3,:4,:5,:6,:7)"
     if len(photos_info['src']) > 15000:
         photos_info['src'] = ''
     flag = True
@@ -190,14 +171,14 @@ def write_photos_info_to_mysql(photos_info):
             photos_info['photos_nums'],
             photos_info['url_pages_nums'], photos_info['src']
         ))
-    except pymysql.Error as e:
+    except cx_Oracle.Error as e:
         print(photos_info['url'] + "信息插入数据库失败")
-        mysql.rollback()
+        oracledb.rollback()
         flag = e
     else:
         print(photos_info['url'] + "信息插入数据库成功")
-        mysql.commit()
+        oracledb.commit()
     finally:
         cursor.close()
-        mysql.close()
+        oracledb.close()
         return sql, flag

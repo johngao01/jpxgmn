@@ -1,18 +1,8 @@
 # 获取最新的写真和写真所有图片的数据
 import os
 import sys
-import time
 from multiprocessing import Pool, Manager, cpu_count
-
-from lxml import etree
-
-from utils import do_request, get_db
-from utils import domain
-from utils import get_organization_had_info
-from utils import get_photos_info
-from utils import log2file
-from utils import write_org_photos
-from utils import write_photos_info_to_mysql
+from utils import *
 
 
 def add(db, url, data, logger, organ):
@@ -84,7 +74,7 @@ if __name__ == '__main__':
     all_latest_photos_url = Manager().list()
     lock = Manager().Lock()
     for file in os.listdir('files/txt'):
-        # get_org_latest_photos_url(file[0:-4], all_latest_photos_url, lock,)
+        # get_org_latest_photos_url(file[0:-4], all_latest_photos_url, lock, )
         p.apply_async(func=get_org_latest_photos_url, args=(file[0:-4], all_latest_photos_url, lock,))
     p.close()
     p.join()

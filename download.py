@@ -18,7 +18,7 @@ def photo_need_download():
     db = get_db()
     _cursor = db.cursor()
     photo = []
-    sql = "select * from photo where local=0"
+    sql = "select * from photo where file_status=0"
     _cursor.execute(sql)
     for data in _cursor.fetchall():
         photo.append(data)
@@ -51,7 +51,7 @@ def download(photo, lock, done_photo):
     if os.path.exists(star_file) and os.path.exists(org_file):
         print(url, file_name, os.path.getsize(star_file))
         with lock:
-            done_photo.append(photo[0])
+            done_photo.append({'src': photo[0]})
     else:
         response = do_request(url, True)
         if isinstance(response, requests.Response):
@@ -63,7 +63,7 @@ def download(photo, lock, done_photo):
                 f.write(response.content)
             print(url, file_name, len(response.content))
             with lock:
-                done_photo.append(photo[0])
+                done_photo.append({'src': photo[0]})
         else:
             with lock:
                 with open('files/出错记录.txt', mode='a', encoding='utf-8') as f_write:
@@ -86,7 +86,8 @@ if __name__ == '__main__':
     p.join()
     with get_db() as connect:
         with connect.cursor() as cursor:
-            cursor.executemany("update photo set local=1 where src=%s", download_photo)
+            src_data = list(download_photo)
+            cursor.executemany("update photo set file_status=1 where src= :src", src_data)
         connect.commit()
     with open(r'files/下载历史.txt', mode='r+', encoding='utf-8') as file:
         latest_photos_title.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
