@@ -41,10 +41,10 @@ def photo_titles(photos):
 
 def download(photo, lock, done_photo):
     url = domain + photo[0]
-    star_path = photo[7]
-    org_path = photo[8]
-    star_dir = rf"C:/Users/john/Desktop/medias/xgmn" + star_path
-    org_dir = rf"C:/Users/john/Desktop/medias/jpxgmn" + org_path
+    star_path = photo[7][1:]
+    save_root = os.path.join(os.path.expanduser('~'), 'Desktop', 'medias')
+    star_dir = os.path.join(save_root, 'xgmn', star_path)
+    org_dir = os.path.join(save_root, 'jpxgmn', star_path)
     file_name = os.path.basename(urlparse(url).path)
     star_file = star_dir + "/" + file_name
     org_file = org_dir + "/" + file_name
