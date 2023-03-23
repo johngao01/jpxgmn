@@ -26,7 +26,7 @@ def get_photos_urls(db, url, organ):
         photos_items.append(post_info)
     if tree.xpath('/html/head/title')[0].text == '访问页面出错了':
         print(organ + '完成')
-        return False
+        return photos_items
     else:
         return photos_items
 
@@ -45,7 +45,7 @@ def get_organization_all_photos(org):
     while True:
         url = base_url + "page_" + str(count) + ".html"
         next_page = get_photos_urls(database, url, org)
-        if isinstance(next_page, list):
+        if isinstance(next_page, list) and len(next_page) > 0:
             photos_urls.extend(next_page)
             print(url, len(photos_urls))
         else:
