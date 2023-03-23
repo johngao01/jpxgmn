@@ -16,7 +16,7 @@ header = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5
 domain = "https://www.xgmn02.com"
 
 
-def get_organization_had_info(organization: Optional[str, None]):
+def get_organization_had_info(organization: Optional[str]):
     database_had_info = []
     oracle_db = get_db()
     cursor = oracle_db.cursor()
@@ -38,7 +38,7 @@ def get_organization_had_info(organization: Optional[str, None]):
 
 # 创建各个写真机构的数据表
 def get_db():
-    dsn_tns = cx_Oracle.makedsn('localhost', '1522', service_name='orcl')
+    dsn_tns = cx_Oracle.makedsn('localhost', '1521', service_name='orcl')
     conn = cx_Oracle.connect(user='jpxgmn', password='123456', dsn=dsn_tns)
     return conn
 
