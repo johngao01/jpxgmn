@@ -1,6 +1,6 @@
 # 获取最新的写真和写真所有图片的数据
+import datetime
 import os
-import sys
 from multiprocessing import Pool, Manager, cpu_count
 from utils import *
 
@@ -14,13 +14,14 @@ def add(db, url, data, logger, organ):
     for item in posts:
         href = item[0].get('href').rstrip()
         post_date = str(item[1][0].text)
+        post_date_f = datetime.datetime.strptime(post_date, "%Y-%m-%d")
         title = item[0].get('title') or ''
         info = post_date + "\t" + href
         if href not in data['had_info']:
             data['photos_urls'].insert(data['organization_add'], info)
             data['organization_add'] += 1
             data['new_photos_url'].append(href)
-            write_org_photos(db, organ, href, title, post_date)
+            write_org_photos(db, organ, href, title, post_date_f)
             logger.info(str(data['organization_add']) + " " + href + " " + title)
     new_add = data['organization_add'] - pre_add
     if new_add == len(posts):
@@ -80,7 +81,7 @@ if __name__ == '__main__':
     p.join()
     nums = len(all_latest_photos_url)
     if nums == 0:
-        sys.exit(0)
+        SystemExit(0)
     process_num = cpu_count() if nums > cpu_count() else nums
     p = Pool(process_num)
     print(f"开始获取{nums}个写真的详细数据，开启 {process_num} 个进程")
