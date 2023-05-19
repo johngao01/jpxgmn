@@ -7,6 +7,7 @@ import requests
 import urllib3
 from utils import domain
 from utils import get_db, do_request
+from PIL import Image
 
 urllib3.disable_warnings()
 header = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -39,6 +40,15 @@ def photo_titles(photos):
     return url_titles
 
 
+def is_valid_image(file_path):
+    try:
+        with Image.open(file_path) as image:
+            image.verify()
+        return True
+    except (IOError, SyntaxError):
+        return False
+
+
 def download(photo, lock, done_photo):
     url = domain + photo[0]
     star_path = photo[7][1:]
@@ -60,11 +70,14 @@ def download(photo, lock, done_photo):
             os.makedirs(star_dir, exist_ok=True)
             with open(star_file, 'wb') as f:
                 f.write(response.content)
-            with open(org_file, 'wb') as f:
-                f.write(response.content)
-            print(url, file_name, len(response.content))
-            with lock:
-                done_photo.append({'src': photo[0]})
+            if is_valid_image(star_file):
+                with open(org_file, 'wb') as f:
+                    f.write(response.content)
+                print(url, file_name, len(response.content))
+                with lock:
+                    done_photo.append({'src': photo[0]})
+            else:
+                os.remove(star_file)
         else:
             with lock:
                 with open('files/出错记录.txt', mode='a', encoding='utf-8') as f_write:
