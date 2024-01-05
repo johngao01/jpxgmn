@@ -1,8 +1,9 @@
 # 小工具
 import logging
 import re
-import time
+from datetime import datetime
 from typing import Optional
+
 import cx_Oracle
 import requests
 import urllib3
@@ -13,7 +14,7 @@ urllib3.disable_warnings()
 header = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                         '(KHTML, like Gecko) Chrome/86.0.4240.75 Safari/537.36'}
 
-domain = "https://www.xgmn08.com"
+domain = "https://www.xgmn01.cc"
 
 
 def get_organization_had_info(organization: Optional[str]):
@@ -44,15 +45,15 @@ def get_db():
 
 
 @retry(stop_max_attempt_number=10)
-def do_request(url: str, stream=False):
+def do_request(url: str, stream=False, page_url=''):
     try:
-        response = requests.get(url, stream=stream,
-                                headers=header, verify=False)
-        return response
+        response = requests.get(url, stream=stream, timeout=20, headers=header, verify=False)
+        response.raise_for_status()
     except Exception as e:
-        print(e, url)
-        time.sleep(20)
-        raise e
+        if stream:
+            print(e, url, page_url)
+    else:
+        return response
 
 
 def log2file(name, filename, ch=False, mode='a', is_time=False):
@@ -76,56 +77,62 @@ def log2file(name, filename, ch=False, mode='a', is_time=False):
 
 
 def get_photos_info(photos_url, organization):
-    # 保存图片的网址
+    def pic_info(page, page_url, pics):
+        for pic_url in pics:
+            src = pic_url.get('src')
+            if src is None:
+                continue
+            srcs.append(src)
+            path = src.split('?')[0]
+            filename = path.split('/')[-1]
+            filename, file_type = filename.split('.')
+            pic_dict = {'src': str(src), 'html_page': page, 'page_url': page_url,
+                        'star_path': r"/{}/{}".format(photo_infos['star'], photo_infos['photos_title']),
+                        'org_path': r"/{}/{}".format(organization, photo_infos['photos_title']),
+                        'file_status': 0, 'filename': filename, 'file_type': file_type}
+            pic_dict.update(photo_infos)
+            photos.append(pic_dict)
+
     count = 1
     photo_infos = {}
     photos = []
+    srcs = []
     url = domain + photos_url
     response = do_request(url)
     if response.status_code == 404:
         return False
     response.encoding = 'utf-8'
     tree = etree.HTML(response.text)
-    photo_infos['url'] = photos_url
+    photo_infos['photos_url'] = photos_url
     star = tree.xpath("//span[@class='item item-2']/a")[0].text
     if star is None:
         photo_infos['star'] = 'unknown'
     else:
         photo_infos['star'] = star.strip()
     title = tree.xpath('//h1[@class="article-title"]')[0].text
-    photo_infos['title'] = re.sub('[\\\\/:*?"<>|\n]', '', title)
-    photo_infos['organization'] = organization.lower()
+    photo_infos['organ'] = organization.lower()
+    photo_infos['photos_title'] = re.sub('[\\\\/:*?"<>|\n]', '', title)
     urls = tree.xpath("//p[@style='text-align: center']/img")
-    srcs = []
     db = get_db()
-    for pic_url in urls:
-        src = str(pic_url.get('src'))
-        srcs.append(src)
-        write_photo_info_to_mysql(database=db, src=src, page=0, page_url=photos_url,
-                                  photos_info=photo_infos, organization=organization)
-    photos.extend(srcs)
-    print(url, count, len(photos))
+    # 获取写真首页的图片数据
+    pic_info(0, photos_url, urls)
     while True:
         srcs = []
         next_url = url[0:-5] + "_" + str(count) + ".html"
         response = do_request(next_url)
+        if response is None:
+            break
         response.encoding = 'utf-8'
         tree = etree.HTML(response.text)
         if response.status_code == 404 or tree.xpath('/html/head/title')[0].text == '访问页面出错了':
             break
         urls = tree.xpath("//p[@align='center']/img")
-        for pic_url in urls:
-            src = str(pic_url.get('src'))
-            srcs.append(src)
-            write_photo_info_to_mysql(database=db, src=src, page=count, page_url=next_url,
-                                      photos_info=photo_infos,
-                                      organization=organization)
-        photos.extend(srcs)
-        print(next_url, count, len(photos))
+        pic_info(count, next_url, urls)
         count += 1
     photo_infos['photos_nums'] = len(photos)
     photo_infos['url_pages_nums'] = count
-    photo_infos['src'] = ','.join(photos)
+    photo_infos['photos_src'] = ','.join(srcs)
+    write_photo_info_to_mysql(db, photos)
     db.close()
     return photo_infos
 
@@ -139,44 +146,51 @@ def write_org_photos(db, org, p_url, title, p_date):
         db.rollback()
 
 
-def write_photo_info_to_mysql(database, src, page, page_url, photos_info, organization: str):
+def write_photo_info_to_mysql(database, photos):
     cursor = database.cursor()
-    star_path = r"/{}/{}".format(photos_info['star'], photos_info['title'])
-    org_path = r"/{}/{}".format(organization, photos_info['title'])
-    sql = "insert into photo (src, html_page, page_url, photos_url, star, organ, photos_title, " \
-          "star_path, org_path, file_status) values (:1,:2,:3,:4,:5,:6,:7,:8,:9,:10)"
+    sql = ("insert into photo values (:src, :html_page, :page_url, :photos_url, :star, :organ, :photos_title, "
+           ":star_path, :org_path, :file_status, :filename, :file_type)")
     try:
-        cursor.execute(sql, (
-            src, page, page_url, photos_info["url"],
-            photos_info["star"], organization, photos_info["title"], star_path, org_path, 0
-        ))
+        cursor.executemany(sql, photos)
         database.commit()
-    except cx_Oracle.Error:
+    except cx_Oracle.Error as e:
+        print(e)
         database.rollback()
     finally:
         cursor.close()
 
 
+def get_organs():
+    oracledb = get_db()
+    cursor = oracledb.cursor()
+    sql = ("select organ from (select organ, max(UP_DATE) up_date from ORGAN_DATA group by organ) "
+           "where up_date > date '2023-06-07'")
+    cursor.execute(sql)
+    organs = [organ[0] for organ in cursor.fetchall()]
+    cursor.close()
+    oracledb.close()
+    return organs
+
+
 def write_photos_info_to_mysql(photos_info):
     oracledb = get_db()
     cursor = oracledb.cursor()
-    sql = "insert into photos_data (url, star, title, organ, photos_nums, url_pages_nums, photos_src) " \
-          "values (:1,:2,:3,:4,:5,:6,:7)"
-    if len(photos_info['src']) > 15000:
-        photos_info['src'] = ''
+    sql = "insert into photos_data (url, star, title, organ, photos_nums, url_pages_nums, photos_src, scrapy_date) " \
+          "values (:1,:2,:3,:4,:5,:6,:7,:8)"
+    if len(photos_info['photos_src']) > 15000:
+        photos_info['photos_src'] = ''
     flag = True
     try:
         cursor.execute(sql, (
-            photos_info['url'], photos_info['star'], photos_info['title'], photos_info['organization'],
-            photos_info['photos_nums'],
-            photos_info['url_pages_nums'], photos_info['src']
+            photos_info['photos_url'], photos_info['star'], photos_info['photos_title'], photos_info['organ'],
+            photos_info['photos_nums'], photos_info['url_pages_nums'], photos_info['photos_src'], datetime.now().date()
         ))
     except cx_Oracle.Error as e:
-        print(photos_info['url'] + "信息插入数据库失败")
+        print(photos_info['photos_url'] + "信息插入数据库失败")
         oracledb.rollback()
         flag = e
     else:
-        print(photos_info['url'] + "信息插入数据库成功")
+        print(photos_info['photos_url'] + "信息插入数据库成功")
         oracledb.commit()
     finally:
         cursor.close()

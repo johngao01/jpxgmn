@@ -1,24 +1,25 @@
 # 获取最新的写真和写真所有图片的数据
-import datetime
-import os
+import time
 from multiprocessing import Pool, Manager, cpu_count
+from sys import exit
+
 from utils import *
 
 
 def add(db, url, data, logger, organ):
     pre_add = data['organization_add']
     response = do_request(url)
+    if response is None:
+        return False
     response.encoding = 'utf-8'
     tree = etree.HTML(response.text)
     posts = tree.xpath("//div[@class='related_posts']//li[@class='related_box']")
     for item in posts:
         href = item[0].get('href').rstrip()
         post_date = str(item[1][0].text)
-        post_date_f = datetime.datetime.strptime(post_date, "%Y-%m-%d")
+        post_date_f = datetime.strptime(post_date, "%Y-%m-%d")
         title = item[0].get('title') or ''
-        info = post_date + "\t" + href
         if href not in data['had_info']:
-            data['photos_urls'].insert(data['organization_add'], info)
             data['organization_add'] += 1
             data['new_photos_url'].append(href)
             write_org_photos(db, organ, href, title, post_date_f)
@@ -37,12 +38,11 @@ def get_photos_data(photos):
 
 def get_org_latest_photos_url(org, all_new_photos, locks):
     database = get_db()
-    logger = log2file(org, f'files/logs/{org}', ch=True, mode='a')
+    logger = log2file(org, f'logs/{org}', ch=True, mode='a')
     now_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     logger.info(f"获取 {org} 截至到 {now_time} 新增的写真")
     # 获取这个机构最新的写真url
     data = {'organization_add': 0,
-            'photos_urls': [line.strip() for line in open(f'files/txt/{org}.txt', encoding='utf-8').readlines()],
             'base_url': domain + "/" + org,
             'had_info': get_organization_had_info(org),
             'new_photos_url': []}
@@ -59,11 +59,6 @@ def get_org_latest_photos_url(org, all_new_photos, locks):
         else:
             break
     logger.info(f"{org}新增了{data['organization_add']}个写真")
-    # 将最新的写真url写入txt
-    with open(f'files/txt/{org}.txt', mode='w', encoding='utf-8') as f:
-        for url in data['photos_urls']:
-            f.write(url)
-            f.write('\n')
     with locks:
         for photos in data['new_photos_url']:
             all_new_photos.append([photos, org])
@@ -71,17 +66,17 @@ def get_org_latest_photos_url(org, all_new_photos, locks):
 
 
 if __name__ == '__main__':
-    p = Pool(20)
+    p = Pool()
     all_latest_photos_url = Manager().list()
     lock = Manager().Lock()
-    for file in os.listdir('files/txt'):
-        # get_org_latest_photos_url(file[0:-4], all_latest_photos_url, lock, )
-        p.apply_async(func=get_org_latest_photos_url, args=(file[0:-4], all_latest_photos_url, lock,))
+    for organ1 in get_organs():
+        # get_org_latest_photos_url(organ1, all_latest_photos_url, lock, )
+        p.apply_async(func=get_org_latest_photos_url, args=(organ1, all_latest_photos_url, lock,))
     p.close()
     p.join()
     nums = len(all_latest_photos_url)
     if nums == 0:
-        SystemExit(0)
+        exit(0)
     process_num = cpu_count() if nums > cpu_count() else nums
     p = Pool(process_num)
     print(f"开始获取{nums}个写真的详细数据，开启 {process_num} 个进程")

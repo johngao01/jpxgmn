@@ -1,13 +1,11 @@
 # 这个脚本用来下载写真所有图片
 import os
-from datetime import datetime
 from multiprocessing import Manager, Pool
 from urllib.parse import urlparse
-import requests
-import urllib3
-from utils import domain
-from utils import get_db, do_request
+
 from PIL import Image
+
+from utils import *
 
 urllib3.disable_warnings()
 header = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -51,6 +49,7 @@ def is_valid_image(file_path):
 
 def download(photo, lock, done_photo):
     url = domain + photo[0]
+    photo_page_url = domain + photo[2]
     star_path = photo[7][1:]
     org_path = photo[8][1:]
     save_root = os.path.join(os.path.expanduser('~'), 'Desktop', 'medias')
@@ -59,12 +58,12 @@ def download(photo, lock, done_photo):
     file_name = os.path.basename(urlparse(url).path)
     star_file = star_dir + "/" + file_name
     org_file = org_dir + "/" + file_name
+    flag = {'src': photo[0], 'photos_url': photo[3]}
     if os.path.exists(star_file) and os.path.exists(org_file):
-        print(url, file_name, os.path.getsize(star_file))
-        with lock:
-            done_photo.append({'src': photo[0]})
+        print(photo_page_url, url, file_name, os.path.getsize(star_file))
+        flag['file_status'] = 1
     else:
-        response = do_request(url, True)
+        response = do_request(url, True, photo_page_url)
         if isinstance(response, requests.Response):
             os.makedirs(org_dir, exist_ok=True)
             os.makedirs(star_dir, exist_ok=True)
@@ -73,16 +72,19 @@ def download(photo, lock, done_photo):
             if is_valid_image(star_file):
                 with open(org_file, 'wb') as f:
                     f.write(response.content)
-                print(url, file_name, len(response.content))
-                with lock:
-                    done_photo.append({'src': photo[0]})
+                print(photo_page_url, url, file_name, len(response.content))
+                flag['file_status'] = 1
             else:
+                flag['file_status'] = -1
                 os.remove(star_file)
         else:
+            flag['file_status'] = -1
             with lock:
                 with open('files/出错记录.txt', mode='a', encoding='utf-8') as f_write:
                     f_write.write(url)
                     f_write.write('\n')
+    with lock:
+        done_photo.append(flag)
 
 
 if __name__ == '__main__':
@@ -101,9 +103,10 @@ if __name__ == '__main__':
     with get_db() as connect:
         with connect.cursor() as cursor:
             src_data = list(download_photo)
-            cursor.executemany("update photo set file_status=1 where src= :src", src_data)
+            cursor.executemany("update photo set file_status=:file_status where src= :src and PHOTOS_URL=:photos_url",
+                               src_data)
         connect.commit()
-    with open(r'files/下载历史.txt', mode='r+', encoding='utf-8') as file:
+    with open(r'下载历史.txt', mode='r+', encoding='utf-8') as file:
         latest_photos_title.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         split = '\n\n*******************************\n\n'
         content = file.read()
